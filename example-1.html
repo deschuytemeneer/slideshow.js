@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Slideshow Example 1</title>
+
+	<style type="text/css">
+		.slideshow {
+			margin: auto;
+			width: 600px;
+			height: 400px;
+
+			background-color: #efefef;
+			color: #0f0f0f; }
+
+		.controllers {
+			position: absolute;
+			top: 450px;
+			left: 0;
+			right: 0;
+			text-align: center; }
+
+		.slide {
+			font-size: 280px;
+			line-height: 400px;
+			text-align: center; }
+
+		.ssc-current {
+			color: blue;
+			font-weight: bold; }
+	</style>
+</head>
+<body>
+
+	<div class="controllers">
+		<button class="slideshow-controller" data-target="#slides-example-1">1</button>
+		<button class="slideshow-controller" data-target="#slides-example-2">2</button>
+		<button class="slideshow-controller" data-target="#slides-example-3">3</button>
+	</div>
+
+	<div class="slideshow" data-direction="horizontal" data-delay="2000">
+		<div class="slide" id="slides-example-1">A</div>
+		<div class="slide" id="slides-example-2">B</div>
+		<div class="slide" id="slides-example-3">C</div>
+	</div>
+
+	<script type="text/javascript" src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+	<script type="text/javascript" src="js/slideshow.js"></script>
+
+</body>
+</html>
