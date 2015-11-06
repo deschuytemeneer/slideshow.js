@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  * 
- * Slideshow.js v1.0
+ * Slideshow.js v1.1
  * Copyright (c) 2015 Kenny Deschuyteneer
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -105,6 +105,7 @@ if (!String.prototype.format) {
 	slideshow.KEY_ANIMATION_CURRENT = "slideshow.animation.current";
 	slideshow.KEY_SLIDE_INDEX = "slideshow.slide.index";
 	slideshow.KEY_CONTROLLER = "slideshow.controller";
+	slideshow.KEY_CONTROLLER_LOCK = "slideshow.controller.lock";
 	slideshow.CLASS_SSC_CURRENT = "ssc-current";
 	slideshow.CLASS_SSC_LOCKED = "ssc-locked";
 
@@ -114,7 +115,8 @@ if (!String.prototype.format) {
 	var css_default_slide = {
 		position: "absolute",
 		width: "100%",
-		height: "100%" };
+		height: "100%",
+		transition: "transform {0}ms, opacity {0}ms".format(slideshow.ANIMATION_SPEED) };
 
 
 	////// Convenience function: create an object holding all possible states for a slide,
@@ -165,13 +167,16 @@ if (!String.prototype.format) {
 			var index = slides.data(slideshow.KEY_ANIMATION_CURRENT);
 			var previous = slides.eq(index);
 			previous.css(states.end);
-			chrono.delay(slideshow.ANIMATION_SPEED, function() { previous.css(states.start) });
 			previous.data(slideshow.KEY_CONTROLLER).off();
 
 			index = ++index % slides.length;
 			slides.data(slideshow.KEY_ANIMATION_CURRENT, index);
 
 			var current = slides.eq(index);
+			current.transition().off();
+			current.css(states.start);
+			current.reflow();
+			current.transition().on();
 			current.css(states.intermediate);
 			current.data(slideshow.KEY_CONTROLLER).on();
 		};
@@ -204,15 +209,12 @@ if (!String.prototype.format) {
 
 			// Prepare the involved elements for the animation.
 			parent.css("position", "relative");
+			this.slides.transition().off();
 			this.slides.css(css_default_slide);
 			this.slides.css(this.states.start);	
+			this.slides.reflow();
+			this.slides.transition().on();
 			this.slides.eq(0).css(this.states.intermediate);
-
-			// We slightly delay the transition on the slides, so it doesn't trigger on the slides
-			// other than the first one and they stay invisible.
-			chrono.delay((this.delay / 2), function() {		
-				parent.children(childname).css("transition", "transform {0}ms, opacity {0}ms".format(slideshow.ANIMATION_SPEED));
-			});
 
 		} else {
 			throw new Error("Can only install animation for a single element at a time"); }
@@ -236,10 +238,13 @@ if (!String.prototype.format) {
 			var previous = this.slides.eq(current);
 			var next = this.slides.eq(_index);
 			var states = this.states;
-
+			
 			previous.css(states.end);
+			next.transition().off();
+			next.css(states.start);
+			next.reflow();
+			next.transition().on();
 			next.css(states.intermediate);
-			chrono.delay(slideshow.ANIMATION_SPEED, function() { previous.css(states.start) });
 
 			previous.data(slideshow.KEY_CONTROLLER).off();
 			next.data(slideshow.KEY_CONTROLLER).on(); };
@@ -312,22 +317,69 @@ if (!String.prototype.format) {
 }(window.slideshow = window.slideshow || {}, jQuery));
 
 
-// When this script gets loaded, it extends jQuery with 4 functions, and automatically converts
-// DOM elements with the .slideshow class to a animated slideshow.
+////// When this script gets loaded, it extends jQuery with 4 functions, and automatically converts
+////// DOM elements with the .slideshow class to a animated slideshow.
 $(document).ready(function() {
+
+	////// Inject the notransition class in the DOM. This class causes elements to ignore any
+	////// transition rules set before.
+	$("<style>")
+		.prop("type", "text/css")
+		.html(".notransition {\
+					-webkit-transition: none !important; \
+					-moz-transition: none !important; \
+					-o-transition: none !important; \
+					-ms-transition: none !important; \
+					transition: none !important; }")
+		.appendTo("head");
+
 
 	$.fn.extend({
 
 		/**
-		 * Function: slideshow(slidetype, direction, delay)
-		 * Description:
-		 *    Generate a slideshow animation for the given elements. The slidetype parameter is used to
-		 *    determine which child containers are used as the slides.
-		 * Parameters:
-		 *    • slidetype: the class of the elements which should become the "slides" of the presentation
-		 *    • direction (optional): the direction in which the slides should animate, either "horizontal"
-		 *                            or "vertical"
-		 *    • delay (optional): the duration in between animations */
+		 Function: reflow()
+		 Description:
+		    Force a layout of the DOM. Use with caution, as this could turn out to be quite
+		    expensive! Uses one of the methods as described in
+		    http://gent.ilcore.com/2011/03/how-not-to-trigger-layout-in-webkit.html
+		**/
+		reflow: function() {
+			$(this)[0].offsetHeight;
+			return $(this);
+		},
+
+		/**
+		 Function: transition()
+		 Description:
+		    Returns an object which allows you to turn off the transitions set on a certain
+		    element. This is done by adding a notranstion class to said element, which forces
+		    the element to have "none" for transition value.
+		**/
+		transition: function() {
+			var element = $(this);
+
+			return {
+				toString: function() {
+					var state = element.hasClass("notransition") ? "on" : "off";
+					return "Transitions for this element are turned " + state;
+				},
+				
+				on: function() { element.removeClass("notransition"); },
+				off: function() { element.addClass("notransition"); },
+			};
+		},
+
+		/**
+		 Function: slideshow(slidetype, direction, delay)
+		 Description:
+		    Generate a slideshow animation for the given elements. The slidetype parameter is used to
+		    determine which child containers are used as the slides.
+		 Parameters:
+		    • slidetype: the class of the elements which should become the "slides" of the presentation
+		    • direction (optional): the direction in which the slides should animate, either "horizontal"
+		                            or "vertical"
+		    • delay (optional): the duration in between animations
+		**/
 		slideshow: function(slidetype, direction, delay) {
 			var containers = $(this);
 			containers.each(function() {
@@ -349,10 +401,11 @@ $(document).ready(function() {
 		},
 
 		/**
-		 * Function: skip()
-		 * Description:
-		 *    If the found element is a single child element of a slideshow container, sets the display of
-		 *    the slideshow to that element and continues the presentation from there. */
+		 Function: skip()
+		 Description:
+		    If the found element is a single child element of a slideshow container, sets the display of
+		    the slideshow to that element and continues the presentation from there.
+		**/
 		skip: function() {
 			var slide = $(this);
 			if (slide.length == 1) {
@@ -364,9 +417,10 @@ $(document).ready(function() {
 		},
 
 		/**
-		 * Function: resume()
-		 * Description:
-		 *    Resumes the animation of any slideshow-animated element. */
+		 Function: resume()
+		 Description:
+		    Resumes the animation of any slideshow-animated element.
+		**/
 		resume: function() {
 			$(this).each(function() {
 				var animation = $(this).data(slideshow.KEY_ANIMATION);
@@ -377,9 +431,10 @@ $(document).ready(function() {
 		},
 
 		/**
-		 * Function: pause()
-		 * Description:
-		 *    Puts the animation of any slideshow-animated element on hold. */
+		 Function: pause()
+		 Description:
+		    Puts the animation of any slideshow-animated element on hold.
+		**/
 		pause: function() {
 			$(this).each(function() {
 				var animation = $(this).data(slideshow.KEY_ANIMATION);
@@ -397,34 +452,49 @@ $(document).ready(function() {
 		**/
 		controller: function(target) {
 			var controllers = $(this);
+			controllers.data(slideshow.KEY_CONTROLLER_LOCK, 0);
+
+			function isLocked() { return controllers.data(slideshow.KEY_CONTROLLER_LOCK); };
+
 			controllers.each(function() {
 				var controller = new slideshow.Controller($(this));
 				var _target = (typeof target === 'undefined') ? $(this).attr("data-target") : target;
 				$(_target).data(slideshow.KEY_CONTROLLER, controller);
+
+				function mouseenter() { if (!isLocked()) { $(_target).skip() } };
+				function mouseleave() { if (!isLocked()) { $(_target).parent().resume() } };
+
+				function lock() {
+					var existing_lock = controllers.data(slideshow.KEY_CONTROLLER_LOCK);
+
+					// If the lock is not on this slide..
+					if (existing_lock != _target) {
+						var prev_controller = $(existing_lock).data(slideshow.KEY_CONTROLLER);
+						if (existing_lock) { prev_controller.off(); };
+						$(_target).skip();
+						controller.lock();
+						controllers.data(slideshow.KEY_CONTROLLER_LOCK, _target);
+
+					// If this slide is locked right now..
+					} else {
+						controller.on();
+						controllers.data(slideshow.KEY_CONTROLLER_LOCK, 0); }
+				};
+
+				$(this).click(lock);
+				$(this).hover(mouseenter, mouseleave);
 			});
 
 			var first_target = controllers.eq(0).attr("data-target");
 			$(first_target).data(slideshow.KEY_CONTROLLER).on();
 
-			controllers.hover(function() {
-				var id = $(this).attr("data-target");
-				$(id).skip();
-			}, function() {
-				var id = $(this).attr("data-target");
-				$(id).parent().resume();
-			});
-
-			controllers.click(function() {
-				$($(this).attr("data-target")).data(slideshow.KEY_CONTROLLER).lock();
-			});
-
 			return $(this);
 		}
 	});
 
-	// It's possible to use this plugin without having to code any Javascript. Any element with
-	// the "slideshow" class will have any child element with the "slide" class animated. Any
-	// element with the "slideshow-controller" class will behave as a controller for its data-target.
+	////// It's possible to use this plugin without having to code any Javascript. Any element with
+	////// the "slideshow" class will have any child element with the "slide" class animated. Any
+	////// element with the "slideshow-controller" class will behave as a controller for its data-target.
 	$(".slideshow").slideshow(".slide").resume();
 	$(".slideshow-controller").controller();
 
