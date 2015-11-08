@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  * 
- * Slideshow.js v1.1
+ * Slideshow.js v1.2
  * Copyright (c) 2015 Kenny Deschuyteneer
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -28,7 +28,7 @@
 if (typeof jQuery === 'undefined') {
 	throw new Error("slideshow.js requires jQuery") }
 
-+function ($) {
++function($) {
 	'use strict';
 	var version = $.fn.jquery.split(' ')[0].split('.')
 	if ((version[0] < 2 && version[1] < 9) || (version[0] == 1 && version[1] == 9 && version[2] < 1)) {
@@ -106,6 +106,7 @@ if (!String.prototype.format) {
 	slideshow.KEY_SLIDE_INDEX = "slideshow.slide.index";
 	slideshow.KEY_CONTROLLER = "slideshow.controller";
 	slideshow.KEY_CONTROLLER_LOCK = "slideshow.controller.lock";
+	slideshow.KEY_CONTROLLER_TARGET = "target";
 	slideshow.CLASS_SSC_CURRENT = "ssc-current";
 	slideshow.CLASS_SSC_LOCKED = "ssc-locked";
 
@@ -274,14 +275,29 @@ if (!String.prototype.format) {
 	/**
 	 Object: Controller
 	 Description:
-	    Create a Controller object, for a given DOM object. The object only has an effect of the
-	    appearance of the button itself by the addition and removal of classes on said DOM object.
+	    A controller is a collection of elements that represent which slide is currently
+	    shown. One can attach and detach elements to this collection.
 	**/
-	slideshow.Controller = function(element) {
-		if (element.length == 1) {
-			this.element = element;
-		} else {
-			throw new Error("Can only transform a single element at a time into a controller"); }
+	slideshow.Controller = function() {
+		this.data = $("undefined");
+	};
+
+	/**
+	 Function: attach(elements)
+	 Description:
+	    Add a selection of DOM elements to this controller.
+	**/
+	slideshow.Controller.prototype.attach = function(elements) {
+		this.data = this.data.add(elements);
+	};
+
+	/**
+	 Function: detach(elements)
+	 Description:
+	    Remove a selection of DOM elements from this controller.
+	**/
+	slideshow.Controller.prototype.detach = function(elements) {
+		this.data = this.data.not(elements);
 	};
 
 	/**
@@ -290,8 +306,8 @@ if (!String.prototype.format) {
 	    Switches to the "current" state for the controller.
 	**/
 	slideshow.Controller.prototype.on = function() {
-		this.element.removeClass("ssc-locked");
-		this.element.addClass("ssc-current");
+		this.data.removeClass("ssc-locked");
+		this.data.addClass("ssc-current");
 	};
 
 	/**
@@ -300,8 +316,8 @@ if (!String.prototype.format) {
 	    Switches to the default state for the controller.
 	**/
 	slideshow.Controller.prototype.off = function() {
-		this.element.removeClass("ssc-current");
-		this.element.removeClass("ssc-locked");
+		this.data.removeClass("ssc-current");
+		this.data.removeClass("ssc-locked");
 	};
 
 	/**
@@ -310,8 +326,8 @@ if (!String.prototype.format) {
 	    Switches to the "locked" state for the controller.
 	**/
 	slideshow.Controller.prototype.lock = function() {
-		this.element.removeClass("ssc-current");
-		this.element.addClass("ssc-locked");
+		this.data.removeClass("ssc-current");
+		this.data.addClass("ssc-locked");
 	};
 
 }(window.slideshow = window.slideshow || {}, jQuery));
@@ -385,15 +401,18 @@ $(document).ready(function() {
 			containers.each(function() {
 				// Create the animation and bind as data to the container.
 				var container = $(this);
-				var _direction = (typeof direction === 'undefined') ? container.attr("data-direction") : direction;
-				var _delay = (typeof delay === 'undefined') ? container.attr("data-delay") : delay;
-				var animation = new slideshow.Animation(container, slidetype, _direction, _delay);
+				direction = direction ? direction : container.attr("data-direction");
+				delay = delay ? delay : container.attr("data-delay") ;
+				var animation = new slideshow.Animation(container, slidetype, direction, delay);
 				container.data(slideshow.KEY_ANIMATION, animation);
+				container.data(slideshow.KEY_CONTROLLER_LOCK, 0);
 
 				// Enumerate the children and bind as data to them, so the slides remember
 				// their index in the sequence.
 				container.children(slidetype).each(function(index) {
-					$(this).data(slideshow.KEY_SLIDE_INDEX, index);
+					var slide = $(this);
+					slide.data(slideshow.KEY_SLIDE_INDEX, index);
+					slide.data(slideshow.KEY_CONTROLLER, new slideshow.Controller());
 				});
 			});
 
@@ -452,33 +471,36 @@ $(document).ready(function() {
 		**/
 		controller: function(target) {
 			var controllers = $(this);
-			controllers.data(slideshow.KEY_CONTROLLER_LOCK, 0);
-
-			function isLocked() { return controllers.data(slideshow.KEY_CONTROLLER_LOCK); };
-
 			controllers.each(function() {
-				var controller = new slideshow.Controller($(this));
-				var _target = (typeof target === 'undefined') ? $(this).attr("data-target") : target;
-				$(_target).data(slideshow.KEY_CONTROLLER, controller);
+				// Pull target from attribute if not explicitly passed. If there is no data-target
+				// attribute defined on the element, throw an error.
+				var _target = target ? target : $(this).data(slideshow.KEY_CONTROLLER_TARGET);
+				if (!_target) { return; }
 
-				function mouseenter() { if (!isLocked()) { $(_target).skip() } };
-				function mouseleave() { if (!isLocked()) { $(_target).parent().resume() } };
+				var target_element = $(_target);
+				var target_container = target_element.parent();
+				target_element.data(slideshow.KEY_CONTROLLER).attach($(this));
+
+				function getLock() { return target_container.data(slideshow.KEY_CONTROLLER_LOCK); }
+
+				function mouseenter() { if (!getLock()) { target_element.skip() } };
+				function mouseleave() { if (!getLock()) { target_container.resume() } };
 
 				function lock() {
-					var existing_lock = controllers.data(slideshow.KEY_CONTROLLER_LOCK);
+					var existing_lock = getLock();
 
 					// If the lock is not on this slide..
 					if (existing_lock != _target) {
 						var prev_controller = $(existing_lock).data(slideshow.KEY_CONTROLLER);
 						if (existing_lock) { prev_controller.off(); };
-						$(_target).skip();
-						controller.lock();
-						controllers.data(slideshow.KEY_CONTROLLER_LOCK, _target);
+						target_element.skip();
+						target_element.data(slideshow.KEY_CONTROLLER).lock();
+						target_container.data(slideshow.KEY_CONTROLLER_LOCK, _target);
 
 					// If this slide is locked right now..
 					} else {
-						controller.on();
-						controllers.data(slideshow.KEY_CONTROLLER_LOCK, 0); }
+						target_element.data(slideshow.KEY_CONTROLLER).on();
+						target_container.data(slideshow.KEY_CONTROLLER_LOCK, 0); }
 				};
 
 				$(this).click(lock);
